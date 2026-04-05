@@ -594,7 +594,7 @@ with tab_coach:
         else:
             st.info("Run `python pipelines/generate_coaching.py` to generate insights.")
 
-        st.markdown('<div class="section-hdr">WhatsApp Brief</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-hdr">Discord Brief</div>', unsafe_allow_html=True)
 
         brief_path = Path("coaching/briefs/daily/latest.txt")
         if brief_path.exists():
@@ -606,9 +606,9 @@ with tab_coach:
             if st.button("📱 Generate & send brief now"):
                 with st.spinner("Generating brief via LMStudio..."):
                     try:
-                        from pipelines.send_whatsapp import main as send_main
+                        from pipelines.send_discord import main as send_main
                         send_main()
-                        st.success("Brief sent via WhatsApp!")
+                        st.success("Brief sent via Discord!")
                     except Exception as e:
                         st.error(f"Error: {e}")
         with col_wa2:

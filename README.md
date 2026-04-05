@@ -1,7 +1,7 @@
 # ERGBootCamp 🚣
 
 Personal indoor rowing coach — Concept2 logbook + Qwen2.5-14B via LMStudio +
-Garmin recovery signals + WhatsApp daily brief via Twilio.
+Garmin recovery signals + Discord daily brief via webhook.
 
 ## Quick start
 
@@ -17,7 +17,7 @@ pip install -e ".[dev]"
 # 3. Copy and fill in secrets
 cp config/.env.example config/.env
 #    → add C2_API_TOKEN, OPENAI_API_KEY=lm-studio,
-#       TWILIO_*, GARMIN_EMAIL, GARMIN_PASSWORD
+#       DISCORD_WEBHOOK_URL, GARMIN_EMAIL, GARMIN_PASSWORD
 
 # 4. Start LMStudio with Qwen2.5-14B-Instruct Q6_K loaded
 #    (server on http://localhost:1234)
@@ -29,7 +29,7 @@ bash scripts/run_pipeline.sh
 streamlit run pipelines/dashboard.py
 ```
 
-## Install 06:30 WhatsApp brief (macOS launchd)
+## Install 06:30 Discord brief (macOS launchd)
 
 ```bash
 bash scripts/install_launchd.sh
@@ -40,7 +40,7 @@ Trigger manually anytime:
 ```bash
 launchctl start com.ergbootcamp.daily_brief
 # or
-python pipelines/send_whatsapp.py
+python pipelines/send_discord.py
 ```
 
 ## Architecture
@@ -60,7 +60,7 @@ ERGBootCamp/
 │   ├── build_daily_metrics.py
 │   ├── generate_coaching.py  ← Qwen2.5-14B via LMStudio
 │   ├── generate_daily_brief.py
-│   ├── send_whatsapp.py      ← Twilio WhatsApp Sandbox
+│   ├── send_discord.py       ← Discord webhook embed
 │   └── dashboard.py          ← Streamlit UI
 │
 ├── coaching/
@@ -118,11 +118,13 @@ Resting HR, Stress Level, Readiness. These feed into:
 - The Recovery tab scatter plot (body battery vs split correlation)
 - Auto-taper: if body battery < 70, target split is relaxed +4s
 
-### Twilio WhatsApp Sandbox setup
-1. Go to console.twilio.com → Messaging → Try it out → WhatsApp
-2. Follow sandbox join instructions (text a code to +1 415 523 8886)
-3. Add your number as `TWILIO_WHATSAPP_TO=whatsapp:+61XXXXXXXXX` in `.env`
-4. Briefs are sent from the sandbox number (free, no approval needed)
+### Discord webhook setup
+1. Go to your Discord server → channel settings → Integrations → Webhooks → New Webhook
+2. Copy the webhook URL
+3. Add URL to `config/.env` as `DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...`
+
+Briefs are sent as rich embeds with colour-coded fatigue state, Garmin recovery
+signals, and competition countdown.
 
 ### launchd schedule (macOS)
 The `install_launchd.sh` script installs a LaunchAgent that fires at
@@ -130,7 +132,7 @@ The `install_launchd.sh` script installs a LaunchAgent that fires at
 1. `pull_concept2.py` — fetch overnight Concept2 sessions
 2. `import_garmin.py` — fetch Garmin overnight recovery data
 3. `build_daily_metrics.py` — rebuild DuckDB metrics view
-4. `send_whatsapp.py` — generate brief via LMStudio + send via Twilio
+4. `send_discord.py` — generate brief via LMStudio + send via Discord
 
 Logs: `logs/daily_brief.log` and `logs/daily_brief_err.log`
 
@@ -140,7 +142,7 @@ Logs: `logs/daily_brief.log` and `logs/daily_brief_err.log`
 |---|---|
 | `Connection refused localhost:1234` | Start LMStudio server first |
 | `Missing C2_API_TOKEN` | Add token to `config/.env` |
-| `Twilio AuthenticationError` | Check SID + auth token in `.env` |
+| `Discord webhook 401/403` | Check `DISCORD_WEBHOOK_URL` in `.env` is valid |
 | `Garmin NotImplementedError` | Add `GARMIN_EMAIL` + `GARMIN_PASSWORD` to `.env` |
 | `No data` in dashboard | Run `bash scripts/run_pipeline.sh` first |
 | launchd not firing | `launchctl list \| grep ergbootcamp` — check exit codes |

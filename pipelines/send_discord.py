@@ -96,7 +96,7 @@ def build_embed(brief_text: str, coaching: dict, garmin: dict) -> dict:
         if garmin else "_Run `import_garmin.py` to sync recovery data_"
     )
 
-    # strip WhatsApp bold markers from brief for Discord formatting
+    # convert single-asterisk bold (*text*) to Discord double-asterisk (**text**)
     clean_brief = brief_text.replace("*", "**")
 
     fields = [

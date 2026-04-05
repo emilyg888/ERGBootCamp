@@ -1,6 +1,6 @@
 #!/bin/bash
 # ERGBootCamp — install_launchd.sh
-# Installs the 06:30 daily WhatsApp brief as a macOS launchd agent.
+# Installs the 06:30 daily Discord brief as a macOS launchd agent.
 # Run once after setup: bash scripts/install_launchd.sh
 
 set -e

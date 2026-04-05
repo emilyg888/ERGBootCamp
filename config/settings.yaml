@@ -21,10 +21,9 @@ concept2:
   api_url: "https://log.concept2.com/api/users/me/results"
   replay_days: 3
 
-# Twilio WhatsApp Sandbox
-twilio:
-  whatsapp_from: "whatsapp:+14155238886"
-  whatsapp_to: "whatsapp:+YOURPHONENUMBER"
+# Discord webhook
+discord:
+  webhook_url: ""  # set via DISCORD_WEBHOOK_URL in .env
 
 # Coaching context memory
 coaching:

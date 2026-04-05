@@ -47,17 +47,8 @@ def get_lm_client() -> OpenAI:
     )
 
 
-# ── Twilio ───────────────────────────────────────────────────────────────────
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-TWILIO_FROM = os.getenv(
-    "TWILIO_WHATSAPP_FROM",
-    SETTINGS["twilio"]["whatsapp_from"],
-)
-TWILIO_TO = os.getenv(
-    "TWILIO_WHATSAPP_TO",
-    SETTINGS["twilio"]["whatsapp_to"],
-)
+# ── Discord ──────────────────────────────────────────────────────────────────
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 # ── Garmin ───────────────────────────────────────────────────────────────────
 GARMIN_EMAIL = os.getenv("GARMIN_EMAIL")

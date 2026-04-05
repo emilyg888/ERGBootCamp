@@ -1,7 +1,7 @@
 """
 ERGBootCamp — generate_daily_brief.py
 
-Generates the WhatsApp daily brief text and saves it as a dated file
+Generates the daily brief text and saves it as a dated file
 in coaching/briefs/daily/. Called by the pipeline and by the launchd job.
 """
 
@@ -83,7 +83,7 @@ Recovery signals (Garmin):
         if taper_active else ""
     )
 
-    prompt = f"""You are a supportive Concept2 rowing coach sending a WhatsApp morning brief.
+    prompt = f"""You are a supportive Concept2 rowing coach sending a morning brief.
 
 Athlete: {ATHLETE['name']} | Competition in 7 months | Goal: {ATHLETE['goal']}
 - Appropriate stroke rate for steady state: 18-22 spm (never recommend above 24 for easy rows)
@@ -99,7 +99,7 @@ Yesterday's session:
 - Weekly load: {summary['weekly_load_min']} min | Trend: {summary['trend']}
 {garmin_section}
 
-Write a WhatsApp morning brief (200 words max). Format:
+Write a morning brief (200 words max). Format:
 *Good morning [name]!* (emoji)
 
 *Yesterday:* 1-2 sentences on what happened
@@ -110,7 +110,7 @@ Write a WhatsApp morning brief (200 words max). Format:
 
 *Motivation:* one short encouraging line related to their 7-month journey
 
-Use WhatsApp bold (*text*) sparingly. Friendly, coach tone. Be specific."""
+Use bold (*text*) sparingly. Friendly, coach tone. Be specific."""
 
     response = client.chat.completions.create(
         model=LM_MODEL,
@@ -135,7 +135,7 @@ def save_brief(brief_text: str) -> str:
 
 
 def main():
-    print("ERGBootCamp - generating daily WhatsApp brief...")
+    print("ERGBootCamp - generating daily brief...")
 
     summary = get_yesterday_summary()
     if summary is None:

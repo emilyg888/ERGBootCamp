@@ -21,7 +21,7 @@
       1. pull_concept2.py   — sync latest workouts from Concept2 logbook
       2. import_garmin.py   — pull Garmin recovery signals
       3. build_daily_metrics.py — rebuild DuckDB metrics table
-      4. send_whatsapp.py   — generate brief via LMStudio + send via Twilio
+      4. send_discord.py    — generate brief via LMStudio + send via Discord
   -->
   <key>ProgramArguments</key>
   <array>
@@ -33,7 +33,7 @@
       python pipelines/pull_concept2.py &amp;&amp;
       python pipelines/import_garmin.py || true &amp;&amp;
       python pipelines/build_daily_metrics.py &amp;&amp;
-      python pipelines/send_whatsapp.py
+      python pipelines/send_discord.py
     </string>
   </array>
 

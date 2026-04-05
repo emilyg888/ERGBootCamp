@@ -16,7 +16,6 @@ dependencies = [
     "matplotlib>=3.8.0",
     "streamlit>=1.32.0",
     "openai>=1.30.0",
-    "twilio>=9.0.0",
     "garminconnect>=0.2.0",
     "plotly>=5.20.0",
 ]
@@ -45,7 +44,7 @@ sync      = "pipelines.pull_concept2:main"
 metrics   = "pipelines.build_daily_metrics:main"
 coach     = "pipelines.generate_coaching:main"
 brief     = "pipelines.generate_daily_brief:main"
-whatsapp  = "pipelines.send_whatsapp:main"
+discord   = "pipelines.send_discord:main"
 garmin    = "pipelines.import_garmin:main"
 
 [tool.setuptools.packages.find]
