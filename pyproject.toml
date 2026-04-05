@@ -1,0 +1,52 @@
+[project]
+name = "ergbootcamp"
+version = "1.0.0"
+description = "ERGBootCamp — Personal indoor rowing coach powered by Qwen2.5 via LMStudio"
+authors = [{ name = "Athlete" }]
+readme = "README.md"
+requires-python = ">=3.10"
+
+dependencies = [
+    "duckdb>=0.10.0",
+    "pandas>=2.2.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.6.0",
+    "pyyaml>=6.0",
+    "matplotlib>=3.8.0",
+    "streamlit>=1.32.0",
+    "openai>=1.30.0",
+    "twilio>=9.0.0",
+    "garminconnect>=0.2.0",
+    "plotly>=5.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "black>=24.0.0",
+    "ruff>=0.3.0",
+    "ipykernel>=6.29.0"
+]
+
+[tool.black]
+line-length = 100
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I"]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+sync      = "pipelines.pull_concept2:main"
+metrics   = "pipelines.build_daily_metrics:main"
+coach     = "pipelines.generate_coaching:main"
+brief     = "pipelines.generate_daily_brief:main"
+whatsapp  = "pipelines.send_whatsapp:main"
+garmin    = "pipelines.import_garmin:main"
+
+[tool.setuptools.packages.find]
+include = ["pipelines*"]

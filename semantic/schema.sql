@@ -1,0 +1,1 @@
+-- DuckDB schema definitions for raw and modeled rowing datasets.

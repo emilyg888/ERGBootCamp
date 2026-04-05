@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+  <!-- ── identity ─────────────────────────────────────────────────── -->
+  <key>Label</key>
+  <string>com.ergbootcamp.daily_brief</string>
+
+  <!-- ── schedule: 06:30 every morning ────────────────────────────── -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>   <integer>6</integer>
+    <key>Minute</key> <integer>30</integer>
+  </dict>
+
+  <!--
+    ── command ───────────────────────────────────────────────────────
+    Runs the full pipeline:
+      1. pull_concept2.py   — sync latest workouts from Concept2 logbook
+      2. import_garmin.py   — pull Garmin recovery signals
+      3. build_daily_metrics.py — rebuild DuckDB metrics table
+      4. send_whatsapp.py   — generate brief via LMStudio + send via Twilio
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>
+      cd /ABSOLUTE/PATH/TO/ERGBootCamp &amp;&amp;
+      source .venv/bin/activate &amp;&amp;
+      python pipelines/pull_concept2.py &amp;&amp;
+      python pipelines/import_garmin.py || true &amp;&amp;
+      python pipelines/build_daily_metrics.py &amp;&amp;
+      python pipelines/send_whatsapp.py
+    </string>
+  </array>
+
+  <!-- ── environment ──────────────────────────────────────────────── -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <!-- launchd doesn't inherit shell env, so we point at the venv Python -->
+    <key>PYTHONPATH</key>
+    <string>/ABSOLUTE/PATH/TO/ERGBootCamp</string>
+  </dict>
+
+  <!-- ── logging ──────────────────────────────────────────────────── -->
+  <key>StandardOutPath</key>
+  <string>/ABSOLUTE/PATH/TO/ERGBootCamp/logs/daily_brief.log</string>
+  <key>StandardErrorPath</key>
+  <string>/ABSOLUTE/PATH/TO/ERGBootCamp/logs/daily_brief_err.log</string>
+
+  <!-- retry on crash, but not on clean exit -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>Crashed</key><true/>
+  </dict>
+
+  <key>RunAtLoad</key><false/>
+
+</dict>
+</plist>

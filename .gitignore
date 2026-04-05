@@ -1,0 +1,36 @@
+# secrets
+config/.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+
+# data (keep structure, not data)
+data/coaching_output.json
+data/garmin_latest.json
+data/processed/*
+data/raw/**/*
+data/snapshots/*
+!data/**/.gitkeep
+
+# DB
+db/*.duckdb
+
+# logs
+logs/*.log
+
+# outputs
+outputs/charts/*
+outputs/reports/*
+!outputs/**/.gitkeep
+
+# macOS
+.DS_Store
+coaching/briefs/daily/*.txt
+coaching/briefs/weekly/*.txt
+outputs/latest_coaching.json

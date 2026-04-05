@@ -1,0 +1,208 @@
+"""
+ERGBootCamp — generate_coaching.py
+
+Calls Qwen2.5-14B via LMStudio (OpenAI-compatible endpoint).
+Injects recent coaching tips as context so the model knows whether
+slower splits are expected (post-recovery-row) or a genuine concern.
+"""
+
+import json
+import os
+import duckdb
+from datetime import datetime, UTC
+
+from pipelines.config_loader import (
+    DB_PATH, LM_MODEL, LM_MAX_TOKENS, LM_TEMPERATURE, ATHLETE, COACHING,
+    get_lm_client,
+)
+from pipelines.coaching_memory import (
+    get_recent_tips, build_context_block, last_taper_flag, add_tip,
+)
+
+
+def safe_float(x):
+    try:
+        return float(x) if x is not None else None
+    except Exception:
+        return None
+
+
+def fmt_split(sec) -> str:
+    """Convert seconds to MM:SS/500m string."""
+    if sec is None:
+        return "N/A"
+    m = int(sec // 60)
+    s = sec % 60
+    return f"{m}:{s:04.1f}/500m"
+
+
+def get_summary():
+    con = duckdb.connect(DB_PATH)
+    df = con.execute("""
+    SELECT t.*,
+        CASE
+            WHEN t.delta > 2 AND t.weekly_load_min > 60 THEN 'fatigue'
+            WHEN t.delta > 1 THEN 'caution'
+            ELSE 'normal'
+        END AS fatigue_flag
+    FROM (
+        SELECT
+            workout_date, avg_split_sec, duration_sec, distance_m,
+            LAG(avg_split_sec) OVER (ORDER BY workout_date) AS prev_split,
+            avg_split_sec - LAG(avg_split_sec) OVER (ORDER BY workout_date) AS delta,
+            AVG(avg_split_sec) OVER (
+                ORDER BY workout_date ROWS BETWEEN 1 PRECEDING AND CURRENT ROW
+            ) AS rolling_avg_split,
+            STDDEV(avg_split_sec) OVER (
+                ORDER BY workout_date ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
+            ) AS consistency,
+            SUM(duration_sec) OVER (
+                ORDER BY workout_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+            ) / 60.0 AS weekly_load_min,
+            CASE
+                WHEN avg_split_sec <= 140 THEN 'race'
+                WHEN avg_split_sec <= 145 THEN 'threshold'
+                ELSE 'steady'
+            END AS session_type
+        FROM workout_sessions
+    ) t
+    ORDER BY workout_date
+    """).fetchdf()
+    con.close()
+
+    if df.empty:
+        return None
+
+    latest = df.iloc[-1]
+    delta = latest["delta"]
+    return {
+        "date": str(latest["workout_date"]),
+        "split_formatted": fmt_split(safe_float(latest["avg_split_sec"])),
+        "split_raw_sec": round(safe_float(latest["avg_split_sec"]), 1),
+        "prev_split_formatted": fmt_split(safe_float(latest.get("prev_split"))),
+        "delta_sec": round(safe_float(delta), 1) if delta is not None else None,
+        "delta_direction": "FASTER (improved)" if delta is not None and delta < 0 else "SLOWER (regressed)",
+        "rolling_split_formatted": fmt_split(safe_float(latest["rolling_avg_split"])),
+        "duration_min": round(safe_float(latest["duration_sec"]) / 60, 1),
+        "distance_m": int(latest["distance_m"]),
+        "fatigue": latest["fatigue_flag"],
+        "weekly_load_min": round(safe_float(latest["weekly_load_min"]), 1),
+        "session_type": latest["session_type"],
+        "trend": "improving (getting faster)" if delta is not None and delta < 0 else "declining (getting slower)",
+        "personal_best_split": "2:20/500m (140.8s) on Mar 21",
+        "consistency_stddev": round(safe_float(latest.get("consistency")), 2)
+            if latest.get("consistency") is not None else None,
+    }
+
+
+def generate_coaching(summary, garmin=None):
+    client = get_lm_client()
+    recent_tips = get_recent_tips()
+    context_block = build_context_block(recent_tips)
+    taper_active = last_taper_flag()
+
+    taper_note = (
+        "\n*** IMPORTANT: The previous coaching tip flagged this session as a RECOVERY ROW. "
+        "Slower splits are EXPECTED and intentional. Do NOT treat the performance decline as "
+        "negative. Acknowledge it as planned adaptation.\n"
+        if taper_active else ""
+    )
+
+    garmin_block = ""
+    if garmin:
+        garmin_block = f"""
+Garmin Connect Recovery Signals:
+- Body Battery: {garmin.get('body_battery', 'N/A')} / 100
+- HRV Status: {garmin.get('hrv_status', 'N/A')}
+- Sleep Score: {garmin.get('sleep_score', 'N/A')}
+- Resting HR: {garmin.get('resting_hr', 'N/A')} bpm
+- Stress Level: {garmin.get('stress', 'N/A')}
+- Readiness: {garmin.get('readiness', 'N/A')}%
+"""
+
+    prompt = f"""You are an expert Concept2 indoor rowing coach for a beginner rower
+training for their first indoor rowing competition in 7 months.
+
+Athlete: height {ATHLETE['height_cm']}cm | goal: {ATHLETE['goal']} | competition: {ATHLETE['competition_date']}
+
+SPLIT CONVENTION: All splits are already in MM:SS/500m format. Lower split = faster.
+delta_sec is NEGATIVE when faster, POSITIVE when slower. Read delta_direction for clarity.
+{taper_note}
+--- PREVIOUS COACHING CONTEXT ---
+{context_block}
+--- END CONTEXT ---
+
+Latest session data:
+{json.dumps(summary, indent=2)}
+{garmin_block}
+The athlete's personal best is {summary['personal_best_split']} from a hard threshold effort.
+Today's 10km at {summary['split_formatted']} was intentional easy volume — not a performance test.
+
+Provide:
+1. What changed — reference split_formatted and prev_split_formatted, state faster or slower
+2. What this indicates — fitness / fatigue / pacing context
+3. Risk level (low / moderate / high) — one sentence
+4. Next session — distance, target split in MM:SS that is FASTER than 2:36/500m, stroke rate, structure
+5. One technical cue specific to this athlete's data
+6. One pacing mistake to avoid
+
+All pace targets must be in MM:SS/500m. Be direct and specific."""
+
+    response = client.chat.completions.create(
+        model=LM_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=LM_MAX_TOKENS,
+        temperature=LM_TEMPERATURE,
+    )
+
+    coaching_text = response.choices[0].message.content.strip()
+
+    tag = "recovery" if taper_active else (
+        "performance" if summary.get("trend") == "improving" else "caution"
+    )
+    add_tip(
+        tip_text=coaching_text[:600],
+        author="coach",
+        tag=tag,
+        session_date=summary.get("date"),
+    )
+
+    return coaching_text
+
+
+def save_output(summary, coaching, garmin=None):
+    output = {
+        "summary": summary,
+        "coaching": coaching,
+        "garmin": garmin,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "model": LM_MODEL,
+    }
+    os.makedirs("data", exist_ok=True)
+    with open("data/coaching_output.json", "w") as f:
+        json.dump(output, f, indent=2)
+
+
+def main():
+    print(f"ERGBootCamp - generating coaching insight via {LM_MODEL}")
+
+    summary = get_summary()
+    if summary is None:
+        print("No data. Run pull_concept2.py first.")
+        return
+
+    garmin = None
+    try:
+        with open("data/garmin_latest.json") as f:
+            garmin = json.load(f)
+        print("Garmin data loaded")
+    except FileNotFoundError:
+        print("No Garmin data (skipping)")
+
+    coaching = generate_coaching(summary, garmin)
+    save_output(summary, coaching, garmin)
+    print("Coaching output saved -> data/coaching_output.json")
+
+
+if __name__ == "__main__":
+    main()
