@@ -7,7 +7,7 @@ Run with:  streamlit run pipelines/dashboard.py
 import json
 import sys
 from pathlib import Path
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import duckdb
 import pandas as pd
@@ -22,6 +22,18 @@ sys.path.insert(0, str(ROOT))
 from pipelines.config_loader import DB_PATH, LM_MODEL, ATHLETE, COACHING, fmt_split as _fmt_split
 from pipelines.coaching_memory import (
     get_recent_tips, add_tip, last_taper_flag, build_context_block,
+)
+from pipelines.coaching_context.quarantine import quarantine_log
+from pipelines.coaching_context import (
+    ExecutionMode,
+    GoalRecord,
+    ParticipantProfile,
+    PolicyEnforcementPoint,
+    PolicyViolationError,
+    SessionNote,
+    Tier,
+    call_llm_with_context,
+    injection_priority,
 )
 
 # ── page config ───────────────────────────────────────────────────────────────
@@ -207,8 +219,8 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── tabs ──────────────────────────────────────────────────────────────────────
-tab_overview, tab_sessions, tab_training, tab_recovery, tab_coach = st.tabs(
-    ["📊 Overview", "🗓 Sessions", "📋 Training Plan", "💚 Recovery", "🧠 Coach"]
+tab_overview, tab_sessions, tab_training, tab_recovery, tab_coach, tab_context = st.tabs(
+    ["📊 Overview", "🗓 Sessions", "📋 Training Plan", "💚 Recovery", "🧠 Coach", "🔒 Context"]
 )
 
 
@@ -617,3 +629,239 @@ with tab_coach:
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 6 — CONTEXT (FR-C08 quarantine log observability)
+# ════════════════════════════════════════════════════════════════════════════
+with tab_context:
+    st.markdown('<div class="section-hdr">Coaching Context — Quarantine Log</div>', unsafe_allow_html=True)
+    st.caption(
+        "Every exclusion from the LLM context window is logged here: "
+        "completeness drops (FR-C03), PEP denials (FR-C06), and budget "
+        "truncations (FR-C05). Retention: 30 days."
+    )
+
+    col_f1, col_f2, col_f3 = st.columns([1, 1, 1])
+    with col_f1:
+        reason_filter = st.selectbox(
+            "Reason code",
+            ["(all)", "completeness_below_threshold", "pep_access_denied",
+             "pep_tier_gate", "budget_truncation"],
+        )
+    with col_f2:
+        entity_filter = st.selectbox(
+            "Entity type",
+            ["(all)", "participant_profile", "session_note", "goal_record"],
+        )
+    with col_f3:
+        if st.button("🔄 Refresh"):
+            st.rerun()
+
+    records = list(
+        quarantine_log.query(
+            reason_code=None if reason_filter == "(all)" else reason_filter,
+            entity_type=None if entity_filter == "(all)" else entity_filter,
+        )
+    )
+
+    all_records = list(quarantine_log.query())
+    by_reason: dict[str, int] = {}
+    for r in all_records:
+        by_reason[r["reason_code"]] = by_reason.get(r["reason_code"], 0) + 1
+
+    kpi_cols = st.columns(4)
+    kpi_specs = [
+        ("Total exclusions", len(all_records), "kpi-amber"),
+        ("Completeness drops", by_reason.get("completeness_below_threshold", 0), "kpi-blue"),
+        ("PEP denials", by_reason.get("pep_access_denied", 0) + by_reason.get("pep_tier_gate", 0), "kpi-red"),
+        ("Budget truncations", by_reason.get("budget_truncation", 0), "kpi-purple"),
+    ]
+    for col, (label, val, color) in zip(kpi_cols, kpi_specs):
+        with col:
+            st.markdown(f"""<div class="kpi-card">
+              <div class="kpi-label">{label}</div>
+              <div class="kpi-value {color}">{val}</div>
+              <div class="kpi-delta" style="color:#7a8ba8">last 30d</div>
+            </div>""", unsafe_allow_html=True)
+
+    st.markdown('<div class="section-hdr">Filtered entries</div>', unsafe_allow_html=True)
+
+    if not records:
+        st.info(
+            "No quarantine entries match the current filter. "
+            "If the log is empty entirely, no coaching_context calls have run yet."
+        )
+    else:
+        rows = []
+        for r in records:
+            rows.append({
+                "timestamp": r["timestamp"][:19],
+                "object_id": r["object_id"],
+                "entity_type": r["entity_type"],
+                "reason_code": r["reason_code"],
+                "priority": round(float(r["priority_score"]), 3),
+                "extra": json.dumps(r.get("extra", {})) if r.get("extra") else "",
+            })
+        rows.sort(key=lambda r: r["timestamp"], reverse=True)
+        st.dataframe(
+            pd.DataFrame(rows),
+            use_container_width=True,
+            height=420,
+            column_config={
+                "timestamp": st.column_config.TextColumn("Timestamp (UTC)"),
+                "priority": st.column_config.NumberColumn("Priority", format="%.3f"),
+                "extra": st.column_config.TextColumn("Extra"),
+            },
+        )
+
+    # ── Test injection sandbox ─────────────────────────────────────────────
+    st.markdown('<div class="section-hdr">Test Injection Sandbox</div>', unsafe_allow_html=True)
+    st.caption(
+        "Run a synthetic request through PEP → injector → call_llm_with_context "
+        "(llm_client=None, so no model is invoked). Useful for verifying tier "
+        "gates, RBAC, completeness drops, and budget truncation end-to-end. "
+        "Any exclusions show up in the quarantine table above on next refresh."
+    )
+
+    with st.form("sandbox_form"):
+        sb_col_a, sb_col_b, sb_col_c = st.columns(3)
+        with sb_col_a:
+            sb_coach = st.text_input("coach_id", value="c1")
+            sb_mapping_raw = st.text_input(
+                "Authorised participant_ids (comma-sep)", value="p1"
+            )
+        with sb_col_b:
+            sb_mode = st.selectbox("Execution mode", ["exploration", "execution"])
+            sb_strict = st.checkbox("PEP strict (raise on first denial)", value=False)
+        with sb_col_c:
+            sb_budget = st.number_input(
+                "Token budget", min_value=50, max_value=20000, value=4000, step=50
+            )
+            sb_user_prompt = st.text_input(
+                "User prompt", value="(sandbox) summarise this athlete"
+            )
+
+        st.markdown("**Sample objects** — toggle which to inject:")
+        use_p1 = st.checkbox(
+            "ParticipantProfile / p1 / GOLD / full content", value=True
+        )
+        use_s1 = st.checkbox(
+            "SessionNote / p1 / SILVER / short content", value=True
+        )
+        use_g1 = st.checkbox(
+            "GoalRecord / p1 / GOLD / specific goal", value=True
+        )
+        use_other = st.checkbox(
+            "ParticipantProfile / p_other / GOLD (unmapped → RBAC denial)",
+            value=False,
+        )
+        use_long = st.checkbox(
+            "SessionNote / p1 / SILVER / 4000-char body (budget filler)",
+            value=False,
+        )
+        use_sparse = st.checkbox(
+            "GoalRecord / p1 / BRONZE / sparse content (low completeness)",
+            value=False,
+        )
+
+        submitted = st.form_submit_button("▶ Run injection")
+
+    if submitted:
+        now = datetime.now(timezone.utc)
+        objs = []
+        if use_p1:
+            objs.append(ParticipantProfile(
+                id="sb_p1_profile", participant_id="p1", created_at=now,
+                tier=Tier.GOLD, confidence=0.95,
+                content="Athlete p1 — base building phase, week 6.",
+                display_name="Pat",
+            ))
+        if use_s1:
+            objs.append(SessionNote(
+                id="sb_s1", participant_id="p1", created_at=now,
+                tier=Tier.SILVER, confidence=0.8,
+                content="Recent session focused on stroke rate and HR control.",
+                session_date=now, coach_id=sb_coach,
+            ))
+        if use_g1:
+            objs.append(GoalRecord(
+                id="sb_g1", participant_id="p1", created_at=now,
+                tier=Tier.GOLD, confidence=0.9,
+                content="Hit a 2km TT under 8:15 by competition.",
+                goal_text="2km TT under 8:15",
+            ))
+        if use_other:
+            objs.append(ParticipantProfile(
+                id="sb_other", participant_id="p_other", created_at=now,
+                tier=Tier.GOLD, confidence=0.9,
+                content="Unrelated athlete record.",
+                display_name="Alex",
+            ))
+        if use_long:
+            objs.append(SessionNote(
+                id="sb_s_long", participant_id="p1", created_at=now,
+                tier=Tier.SILVER, confidence=0.75,
+                content=("Filler session body. " * 200),
+                session_date=now, coach_id=sb_coach,
+            ))
+        if use_sparse:
+            objs.append(GoalRecord(
+                id="sb_sparse_goal", participant_id="p1", created_at=now,
+                tier=Tier.BRONZE, confidence=0.4,
+                content="",
+                goal_text="",
+            ))
+
+        mapping = {
+            sb_coach: {p.strip() for p in sb_mapping_raw.split(",") if p.strip()}
+        }
+        mode = ExecutionMode(sb_mode)
+        pep = PolicyEnforcementPoint(
+            coach_id=sb_coach,
+            coach_to_participants=mapping,
+            mode=mode,
+            strict=sb_strict,
+        )
+
+        st.markdown("**PEP decision preview**")
+        decision_rows = [
+            {
+                "object_id": o.id,
+                "entity_type": o.entity_type,
+                "tier": o.tier.value,
+                "participant_id": o.participant_id,
+                "priority": round(injection_priority(o), 3),
+                "allowed": pep.evaluate(o).allowed,
+                "reason": pep.evaluate(o).reason_code,
+            }
+            for o in objs
+        ]
+        st.dataframe(pd.DataFrame(decision_rows), use_container_width=True)
+
+        st.markdown("**Pipeline run**")
+        try:
+            result = call_llm_with_context(
+                objects=objs,
+                pep=pep,
+                mode=mode,
+                user_prompt=sb_user_prompt,
+                token_budget=int(sb_budget),
+                llm_client=None,
+            )
+            ctx = json.loads(result["request"]["context"])
+            st.success(f"Pipeline succeeded — {len(ctx)} object(s) injected.")
+            with st.expander("Injected context payload (read-only)"):
+                st.json(ctx)
+            with st.expander("Full LLM request envelope"):
+                st.json(result["request"])
+        except PolicyViolationError as e:
+            st.error(f"PolicyViolationError (strict mode): {e}")
+            st.caption(
+                "Toggle off 'PEP strict' to filter denied objects silently "
+                "instead of raising."
+            )
+        except Exception as e:
+            st.exception(e)
+
+        st.info("Click 🔄 Refresh above to see new quarantine entries.")
