@@ -13,7 +13,7 @@ from datetime import datetime, UTC
 
 from pipelines.config_loader import (
     DB_PATH, LM_MODEL, LM_MAX_TOKENS, LM_TEMPERATURE, ATHLETE, COACHING,
-    get_lm_client,
+    ROOT, get_lm_client, fmt_split,
 )
 from pipelines.coaching_memory import (
     get_recent_tips, build_context_block, last_taper_flag, add_tip,
@@ -27,45 +27,36 @@ def safe_float(x):
         return None
 
 
-def fmt_split(sec) -> str:
-    """Convert seconds to MM:SS/500m string."""
-    if sec is None:
+
+def get_personal_best() -> str:
+    """Query the all-time personal best split from workout_sessions."""
+    con = duckdb.connect(DB_PATH)
+    row = con.execute("""
+    SELECT MIN(avg_split_sec), workout_date
+    FROM workout_sessions
+    WHERE avg_split_sec IS NOT NULL AND distance_m >= 1000
+    ORDER BY avg_split_sec ASC LIMIT 1
+    """).fetchone()
+    con.close()
+
+    if row is None or row[0] is None:
         return "N/A"
-    m = int(sec // 60)
-    s = sec % 60
-    return f"{m}:{s:04.1f}/500m"
+
+    best_sec = row[0]
+    best_date = row[1]
+    split_str = fmt_split(best_sec)
+    try:
+        date_str = best_date.strftime("%b %d")
+    except Exception:
+        date_str = str(best_date)
+    return f"{split_str} ({best_sec:.1f}s) on {date_str}"
 
 
 def get_summary():
     con = duckdb.connect(DB_PATH)
     df = con.execute("""
-    SELECT t.*,
-        CASE
-            WHEN t.delta > 2 AND t.weekly_load_min > 60 THEN 'fatigue'
-            WHEN t.delta > 1 THEN 'caution'
-            ELSE 'normal'
-        END AS fatigue_flag
-    FROM (
-        SELECT
-            workout_date, avg_split_sec, duration_sec, distance_m,
-            LAG(avg_split_sec) OVER (ORDER BY workout_date) AS prev_split,
-            avg_split_sec - LAG(avg_split_sec) OVER (ORDER BY workout_date) AS delta,
-            AVG(avg_split_sec) OVER (
-                ORDER BY workout_date ROWS BETWEEN 1 PRECEDING AND CURRENT ROW
-            ) AS rolling_avg_split,
-            STDDEV(avg_split_sec) OVER (
-                ORDER BY workout_date ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
-            ) AS consistency,
-            SUM(duration_sec) OVER (
-                ORDER BY workout_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
-            ) / 60.0 AS weekly_load_min,
-            CASE
-                WHEN avg_split_sec <= 140 THEN 'race'
-                WHEN avg_split_sec <= 145 THEN 'threshold'
-                ELSE 'steady'
-            END AS session_type
-        FROM workout_sessions
-    ) t
+    SELECT * FROM daily_metrics
+    WHERE avg_split_sec IS NOT NULL
     ORDER BY workout_date
     """).fetchdf()
     con.close()
@@ -89,7 +80,7 @@ def get_summary():
         "weekly_load_min": round(safe_float(latest["weekly_load_min"]), 1),
         "session_type": latest["session_type"],
         "trend": "improving (getting faster)" if delta is not None and delta < 0 else "declining (getting slower)",
-        "personal_best_split": "2:20/500m (140.8s) on Mar 21",
+        "personal_best_split": get_personal_best(),
         "consistency_stddev": round(safe_float(latest.get("consistency")), 2)
             if latest.get("consistency") is not None else None,
     }
@@ -193,7 +184,7 @@ def main():
 
     garmin = None
     try:
-        with open("data/garmin_latest.json") as f:
+        with open(ROOT / "data" / "garmin_latest.json") as f:
             garmin = json.load(f)
         print("Garmin data loaded")
     except FileNotFoundError:

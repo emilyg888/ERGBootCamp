@@ -19,7 +19,7 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from pipelines.config_loader import DB_PATH, LM_MODEL, ATHLETE, COACHING
+from pipelines.config_loader import DB_PATH, LM_MODEL, ATHLETE, COACHING, fmt_split as _fmt_split
 from pipelines.coaching_memory import (
     get_recent_tips, add_tip, last_taper_flag, build_context_block,
 )
@@ -138,11 +138,7 @@ html, body, [class*="css"] {
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 def fmt_split(sec) -> str:
-    if sec is None:
-        return "—"
-    m = int(sec // 60)
-    s = sec % 60
-    return f"{m}:{s:04.1f}"
+    return _fmt_split(sec, suffix="")
 
 
 def days_to_competition() -> int:

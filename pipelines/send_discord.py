@@ -16,7 +16,7 @@ import requests
 from datetime import date, datetime
 from pathlib import Path
 
-from pipelines.config_loader import BRIEFS_DIR, ATHLETE
+from pipelines.config_loader import BRIEFS_DIR, ATHLETE, fmt_split
 
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
@@ -58,13 +58,6 @@ def load_garmin() -> dict:
             return json.load(f)
     return {}
 
-
-def fmt_split(sec) -> str:
-    if sec is None:
-        return "—"
-    m = int(sec // 60)
-    s = sec % 60
-    return f"{m}:{s:04.1f}/500m"
 
 
 def build_embed(brief_text: str, coaching: dict, garmin: dict) -> dict:

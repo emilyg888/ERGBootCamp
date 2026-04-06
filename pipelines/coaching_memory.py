@@ -16,6 +16,7 @@ from pipelines.config_loader import DB_PATH, COACHING
 
 
 # ── schema ──────────────────────────────────────────────────────────────────
+# DDL also defined in semantic/schema.sql — keep in sync
 DDL = """
 CREATE TABLE IF NOT EXISTS coaching_tips (
     tip_id       TEXT PRIMARY KEY,

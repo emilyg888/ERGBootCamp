@@ -8,6 +8,7 @@ import yaml
 from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import BaseModel
 
 # ── resolve project root (works regardless of cwd) ─────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
@@ -15,9 +16,44 @@ ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / "config" / ".env")
 
 
+class LMStudioSettings(BaseModel):
+    base_url: str
+    model: str
+    max_tokens: int
+    temperature: float
+
+
+class Concept2Settings(BaseModel):
+    api_url: str
+    replay_days: int
+
+
+class CoachingSettings(BaseModel):
+    context_window: int
+    briefs_dir: str
+
+
+class AthleteSettings(BaseModel):
+    name: str
+    competition_date: str
+
+
+class Settings(BaseModel):
+    lmstudio: LMStudioSettings
+    concept2: Concept2Settings
+    coaching: CoachingSettings
+    athlete: AthleteSettings
+    database_path: str
+
+
 def load_settings() -> dict:
     with open(ROOT / "config" / "settings.yaml") as f:
-        return yaml.safe_load(f)
+        raw = yaml.safe_load(f)
+    try:
+        Settings(**raw)
+    except Exception as e:
+        raise ValueError(f"settings.yaml validation failed: {e}") from e
+    return raw
 
 
 SETTINGS = load_settings()
@@ -59,3 +95,12 @@ ATHLETE = SETTINGS["athlete"]
 
 # ── Coaching memory ──────────────────────────────────────────────────────────
 COACHING = SETTINGS["coaching"]
+
+
+# ── Formatting ──────────────────────────────────────────────────────────────
+def fmt_split(sec, suffix="/500m") -> str:
+    if sec is None:
+        return "\u2014"
+    m = int(sec // 60)
+    s = sec % 60
+    return f"{m}:{s:04.1f}{suffix}"

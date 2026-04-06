@@ -18,6 +18,7 @@ def get_connection():
 
 
 def ensure_tables(con):
+    # DDL also defined in semantic/schema.sql — keep in sync
     con.execute("""
     CREATE TABLE IF NOT EXISTS workout_sessions (
         workout_id    TEXT PRIMARY KEY,
@@ -69,7 +70,10 @@ def fetch_workouts():
     if not C2_API_TOKEN:
         raise ValueError("Missing C2_API_TOKEN in config/.env")
     headers = {"Authorization": f"Bearer {C2_API_TOKEN}"}
-    r = requests.get(C2_API_URL, headers=headers)
+    try:
+        r = requests.get(C2_API_URL, headers=headers, timeout=15)
+    except requests.exceptions.Timeout:
+        raise RuntimeError("Concept2 API timed out after 15s")
     r.raise_for_status()
     data = r.json().get("data", [])
     print(f"Fetched {len(data)} workouts from Concept2 API")

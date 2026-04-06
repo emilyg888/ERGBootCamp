@@ -1,6 +1,5 @@
 """
 ERGBootCamp — import_garmin.py
-import sys
 
 Pulls recovery signals from Garmin Connect and writes them to:
   data/garmin_latest.json   (for coaching pipeline)
@@ -11,13 +10,15 @@ Requires: pip install garminconnect
 
 import json
 import os
+import sys
 from datetime import date, datetime, UTC
 import duckdb
 
-from pipelines.config_loader import DB_PATH, GARMIN_EMAIL, GARMIN_PASSWORD
+from pipelines.config_loader import DB_PATH, GARMIN_EMAIL, GARMIN_PASSWORD, ROOT
 
-GARMIN_CACHE = "data/garmin_latest.json"
+GARMIN_CACHE = ROOT / "data" / "garmin_latest.json"
 
+# DDL also defined in semantic/schema.sql — keep in sync
 DDL_GARMIN = """
 CREATE TABLE IF NOT EXISTS garmin_daily (
     record_date   DATE PRIMARY KEY,
@@ -32,6 +33,9 @@ CREATE TABLE IF NOT EXISTS garmin_daily (
 """
 
 
+GARMIN_TOKEN_STORE = str(ROOT / ".garminconnect")
+
+
 def fetch_garmin() -> dict:
     from garminconnect import Garmin
 
@@ -39,7 +43,11 @@ def fetch_garmin() -> dict:
         raise ValueError("Missing GARMIN_EMAIL or GARMIN_PASSWORD in config/.env")
 
     api = Garmin(GARMIN_EMAIL, GARMIN_PASSWORD)
-    api.login()
+    try:
+        api.login(GARMIN_TOKEN_STORE)
+    except Exception:
+        api.login()
+        api.garth.save(GARMIN_TOKEN_STORE)
 
     today = date.today().isoformat()
 
@@ -125,7 +133,7 @@ def main():
 
     data = fetch_garmin()
 
-    os.makedirs("data", exist_ok=True)
+    os.makedirs(ROOT / "data", exist_ok=True)
     with open(GARMIN_CACHE, "w") as f:
         json.dump(data, f, indent=2)
 

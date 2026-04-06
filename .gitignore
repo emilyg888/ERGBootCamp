@@ -1,5 +1,6 @@
 # secrets
 config/.env
+.garminconnect/
 
 # Python
 __pycache__/

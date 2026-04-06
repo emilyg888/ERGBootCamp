@@ -12,6 +12,7 @@ from pipelines.coaching_memory import ensure_table as ensure_tips_table
 def build_metrics():
     con = duckdb.connect(DB_PATH)
 
+    # DDL also defined in semantic/views.sql — keep in sync
     con.execute("""
     CREATE OR REPLACE TABLE daily_metrics AS
     SELECT
