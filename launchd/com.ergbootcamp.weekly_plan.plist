@@ -6,20 +6,22 @@
 
   <!-- ── identity ─────────────────────────────────────────────────── -->
   <key>Label</key>
-  <string>com.ergbootcamp.daily_brief</string>
+  <string>com.ergbootcamp.weekly_plan</string>
 
-  <!-- ── schedule: run once at login ──────────────────────────────── -->
-  <!-- LaunchAgents with RunAtLoad=true are executed when the user logs
-       in (the agent is loaded into the per-user launchd domain at that
-       point). No StartCalendarInterval = no fixed-time runs. -->
+  <!-- ── schedule: every Sunday at 19:30 ──────────────────────────── -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key><integer>0</integer>  <!-- 0 = Sunday in launchd -->
+    <key>Hour</key><integer>19</integer>
+    <key>Minute</key><integer>30</integer>
+  </dict>
 
-  <!--
-    ── command ───────────────────────────────────────────────────────
-    Runs the full pipeline:
-      1. pull_concept2.py   — sync latest workouts from Concept2 logbook
-      2. import_garmin.py   — pull Garmin recovery signals
-      3. build_daily_metrics.py — rebuild DuckDB metrics table
-      4. send_discord.py    — generate brief via LMStudio + send via Discord
+  <!-- ── command ───────────────────────────────────────────────────────
+    Runs the weekly plan pipeline:
+      1. pull_concept2.py        — ensure latest sessions are synced
+      2. import_garmin.py        — pull final Garmin signals for the week
+      3. build_daily_metrics.py  — rebuild metrics table
+      4. generate_weekly_plan.py — aggregate + LLM plan → weekly_plan.json
   -->
   <key>ProgramArguments</key>
   <array>
@@ -31,7 +33,7 @@
       python pipelines/pull_concept2.py &amp;&amp;
       python pipelines/import_garmin.py || true &amp;&amp;
       python pipelines/build_daily_metrics.py &amp;&amp;
-      python pipelines/send_discord.py
+      python pipelines/generate_weekly_plan.py
     </string>
   </array>
 
@@ -40,24 +42,17 @@
   <dict>
     <key>PATH</key>
     <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-    <!-- launchd doesn't inherit shell env, so we point at the venv Python -->
     <key>PYTHONPATH</key>
     <string>/ABSOLUTE/PATH/TO/ERGBootCamp</string>
   </dict>
 
   <!-- ── logging ──────────────────────────────────────────────────── -->
   <key>StandardOutPath</key>
-  <string>/ABSOLUTE/PATH/TO/ERGBootCamp/logs/daily_brief.log</string>
+  <string>/ABSOLUTE/PATH/TO/ERGBootCamp/logs/weekly_plan.log</string>
   <key>StandardErrorPath</key>
-  <string>/ABSOLUTE/PATH/TO/ERGBootCamp/logs/daily_brief_err.log</string>
+  <string>/ABSOLUTE/PATH/TO/ERGBootCamp/logs/weekly_plan_err.log</string>
 
-  <!-- retry on crash, but not on clean exit -->
-  <key>KeepAlive</key>
-  <dict>
-    <key>Crashed</key><true/>
-  </dict>
-
-  <key>RunAtLoad</key><true/>
+  <key>RunAtLoad</key><false/>
 
 </dict>
 </plist>
