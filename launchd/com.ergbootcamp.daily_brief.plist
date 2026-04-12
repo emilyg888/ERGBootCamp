@@ -19,7 +19,7 @@
       1. pull_concept2.py   — sync latest workouts from Concept2 logbook
       2. import_garmin.py   — pull Garmin recovery signals
       3. build_daily_metrics.py — rebuild DuckDB metrics table
-      4. send_discord.py    — generate brief via LMStudio + send via Discord
+      4. send_discord.py    — generate brief via Ollama + send via Discord
   -->
   <key>ProgramArguments</key>
   <array>
