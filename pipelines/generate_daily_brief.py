@@ -11,7 +11,7 @@ from datetime import datetime, UTC, date
 
 from pipelines.config_loader import (
     DB_PATH, LM_MODEL, LM_MAX_TOKENS, ATHLETE, COACHING, BRIEFS_DIR,
-    ROOT, get_lm_client,
+    DATA_ROOT, get_lm_client,
 )
 from pipelines.coaching_memory import get_recent_tips, build_context_block, last_taper_flag
 import duckdb
@@ -48,7 +48,7 @@ def get_yesterday_summary():
 
 def load_garmin():
     try:
-        with open(ROOT / "data" / "garmin_latest.json") as f:
+        with open(DATA_ROOT / "data" / "garmin_latest.json") as f:
             return json.load(f)
     except FileNotFoundError:
         return None

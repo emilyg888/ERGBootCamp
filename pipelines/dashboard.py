@@ -24,7 +24,7 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from pipelines.config_loader import DB_PATH, LM_MODEL, ATHLETE, COACHING, fmt_split as _fmt_split
+from pipelines.config_loader import DB_PATH, LM_MODEL, ATHLETE, COACHING, DATA_ROOT, fmt_split as _fmt_split
 from pipelines.coaching_memory import (
     get_recent_tips, add_tip, last_taper_flag, build_context_block,
 )
@@ -203,7 +203,7 @@ def load_db():
 
 
 def load_coaching_output():
-    p = Path("data/coaching_output.json")
+    p = DATA_ROOT / "data" / "coaching_output.json"
     if p.exists():
         with open(p) as f:
             return json.load(f)
@@ -221,15 +221,18 @@ def _coaching_summary_dt(coaching_output: dict) -> datetime | None:
 
 
 def load_weekly_plan():
-    p = ROOT / "data" / "snapshots" / "weekly_plan.json"
+    p = DATA_ROOT / "data" / "snapshots" / "weekly_plan.json"
     if p.exists():
-        with open(p) as f:
-            return json.load(f)
+        try:
+            with open(p) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return None
     return None
 
 
 def load_garmin_cache():
-    p = Path("data/garmin_latest.json")
+    p = DATA_ROOT / "data" / "garmin_latest.json"
     if p.exists():
         with open(p) as f:
             return json.load(f)
@@ -260,7 +263,7 @@ def _file_mtime(path: Path) -> datetime | None:
 
 def _launch_background_script(script_name: str, stdout_name: str, stderr_name: str):
     script_path = ROOT / "scripts" / script_name
-    log_dir = ROOT / "logs"
+    log_dir = DATA_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     env = os.environ.copy()
@@ -281,10 +284,19 @@ def _launch_background_script(script_name: str, stdout_name: str, stderr_name: s
 df, garmin_df = load_db()
 coaching_output = load_coaching_output()
 garmin          = load_garmin_cache()
+weekly_snapshot_path = DATA_ROOT / "data" / "snapshots" / "weekly_plan.json"
+weekly_snapshot_mtime = _file_mtime(weekly_snapshot_path)
+
+# Auto-detect external file changes and rerun to pick up fresh data
+_prev_mtime = st.session_state.get("_weekly_snapshot_mtime_seen")
+if weekly_snapshot_mtime is not None and _prev_mtime is not None and weekly_snapshot_mtime > _prev_mtime:
+    st.session_state["_weekly_snapshot_mtime_seen"] = weekly_snapshot_mtime
+    st.rerun()
+if weekly_snapshot_mtime is not None:
+    st.session_state["_weekly_snapshot_mtime_seen"] = weekly_snapshot_mtime
+
 weekly_plan     = load_weekly_plan()
 latest = df.iloc[-1] if not df.empty else None
-weekly_snapshot_path = ROOT / "data" / "snapshots" / "weekly_plan.json"
-weekly_snapshot_mtime = _file_mtime(weekly_snapshot_path)
 
 # ── brand bar ─────────────────────────────────────────────────────────────────
 days_left = days_to_competition()
@@ -301,6 +313,8 @@ if weekly_completed:
     if st.session_state.get("weekly_plan_completed_at") != weekly_snapshot_mtime:
         st.session_state["weekly_plan_completed_at"] = weekly_snapshot_mtime
         st.toast("Weekly planning finished. The training plan has been refreshed.")
+        # Force a clean rerun so every tab re-reads the fresh snapshot
+        st.rerun()
 
 weekly_active = (
     weekly_requested_at is not None
@@ -559,6 +573,12 @@ with tab_sessions:
 with tab_training:
     from datetime import timedelta
 
+    # Refresh button so the user can manually pull latest data
+    _tp_hdr_l, _tp_hdr_r = st.columns([9, 1])
+    with _tp_hdr_r:
+        if st.button("↻ Refresh", key="refresh_training_plan"):
+            st.rerun()
+
     today       = date.today()
     day_labels  = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -661,7 +681,38 @@ with tab_training:
 
     next_week_entries = weekly_plan.get("next_week_plan", []) if weekly_plan else []
 
+    def _parse_plan_km(label: str) -> float:
+        """Extract planned distance in km from a plan label like '5km easy row' or '3x1km intervals'."""
+        m = _re.match(r"(\d+)[xX](\d+(?:\.\d+)?)\s*km", label)
+        if m:
+            return int(m.group(1)) * float(m.group(2))
+        m = _re.search(r"(\d+(?:\.\d+)?)\s*km", label)
+        if m:
+            return float(m.group(1))
+        return 0.0
+
     if next_week_entries:
+        # ── Planned-volume bar chart ────────────────────────────────────
+        plan_days    = [e.get("day", "") for e in next_week_entries]
+        plan_dates   = [date.fromisoformat(e["date"]).strftime("%-d %b") if e.get("date") else "" for e in next_week_entries]
+        plan_km      = [_parse_plan_km(e.get("label", "")) for e in next_week_entries]
+        plan_colors  = [TYPE_STYLE.get(e.get("session_type", "rest"), TYPE_STYLE["steady"])[0] for e in next_week_entries]
+
+        fig_nw = go.Figure(go.Bar(
+            x=plan_dates,
+            y=plan_km,
+            marker_color=plan_colors,
+            text=[f"{v:.0f}km" if v > 0 else "" for v in plan_km],
+            textposition="outside",
+            textfont=dict(size=10, color="#7a8ba8"),
+        ))
+        fig_nw.update_layout(**plotly_defaults(), height=160,
+                             yaxis_title="km", xaxis_title=None, bargap=0.3)
+        fig_nw.update_yaxes(gridcolor="rgba(255,255,255,0.04)", rangemode="tozero")
+        fig_nw.update_xaxes(tickfont=dict(size=11))
+        st.plotly_chart(fig_nw, use_container_width=True)
+
+        # ── Day cards ───────────────────────────────────────────────────
         day_cols = st.columns(7)
         for col, entry in zip(day_cols, next_week_entries):
             stype      = entry.get("session_type", "rest")
