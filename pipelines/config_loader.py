@@ -4,6 +4,7 @@ All pipelines import from here so settings live in one place.
 """
 
 import os
+import subprocess
 import yaml
 from pathlib import Path
 from dotenv import load_dotenv
@@ -12,6 +13,31 @@ from pydantic import BaseModel
 
 # ── resolve project root (works regardless of cwd) ─────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def _resolve_data_root() -> Path:
+    """Return the main git working tree root for data paths.
+
+    When running inside a git worktree (e.g. .claude/worktrees/*), data files
+    like the DuckDB database and JSON snapshots live in the main working tree
+    because they are gitignored.  This helper ensures all data I/O targets the
+    main tree regardless of which worktree the code is executing from.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=ROOT, capture_output=True, text=True, check=True,
+        )
+        git_common = Path(result.stdout.strip())
+        if not git_common.is_absolute():
+            git_common = (ROOT / git_common).resolve()
+        # git-common-dir returns e.g. "/repo/.git" → parent is the repo root
+        return git_common.parent
+    except Exception:
+        return ROOT
+
+
+DATA_ROOT = _resolve_data_root()
 
 load_dotenv(ROOT / "config" / ".env")
 
@@ -58,9 +84,9 @@ def load_settings() -> dict:
 
 SETTINGS = load_settings()
 
-# ── paths ───────────────────────────────────────────────────────────────────
-DB_PATH = str(ROOT / SETTINGS["database_path"])
-BRIEFS_DIR = ROOT / SETTINGS["coaching"]["briefs_dir"]
+# ── paths (data lives in the main working tree, not in worktrees) ──────────
+DB_PATH = str(DATA_ROOT / SETTINGS["database_path"])
+BRIEFS_DIR = DATA_ROOT / SETTINGS["coaching"]["briefs_dir"]
 BRIEFS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Concept2 ─────────────────────────────────────────────────────────────────

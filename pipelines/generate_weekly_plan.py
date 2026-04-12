@@ -10,17 +10,19 @@ Output: data/snapshots/weekly_plan.json
 """
 
 import json
+import os
+import tempfile
 import duckdb
 from datetime import date, datetime, timedelta, UTC
 
 from pipelines.config_loader import (
     DB_PATH, LM_MODEL, LM_MAX_TOKENS, LM_TEMPERATURE, ATHLETE,
-    ROOT, get_lm_client, fmt_split,
+    DATA_ROOT, get_lm_client, fmt_split,
 )
 from pipelines.coaching_memory import get_recent_tips, build_context_block
 
 
-SNAPSHOT_PATH = ROOT / "data" / "snapshots" / "weekly_plan.json"
+SNAPSHOT_PATH = DATA_ROOT / "data" / "snapshots" / "weekly_plan.json"
 
 SESSION_TYPES = ["steady", "recovery", "interval", "threshold", "long", "rest"]
 
@@ -178,8 +180,15 @@ def save_snapshot(this_week: dict, prev_week: dict, plan: dict, week_start: date
         "next_week_plan": plan.get("next_week", []),
         "model":         LM_MODEL,
     }
-    with open(SNAPSHOT_PATH, "w") as f:
-        json.dump(payload, f, indent=2)
+    # Atomic write: write to temp file then rename, so readers never see partial JSON
+    fd, tmp = tempfile.mkstemp(dir=SNAPSHOT_PATH.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(payload, f, indent=2)
+        os.replace(tmp, SNAPSHOT_PATH)
+    except BaseException:
+        os.unlink(tmp)
+        raise
     print(f"Weekly plan saved → {SNAPSHOT_PATH}")
 
 

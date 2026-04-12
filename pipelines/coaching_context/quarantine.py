@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Optional
@@ -19,7 +20,21 @@ _LOG = logging.getLogger("coaching_context.quarantine")
 
 # Resolve relative to ERGBootCamp project root
 _ROOT = Path(__file__).resolve().parent.parent.parent
-_DEFAULT_PATH = _ROOT / "logs" / "coaching_quarantine.jsonl"
+
+def _quarantine_data_root() -> Path:
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=_ROOT, capture_output=True, text=True, check=True,
+        )
+        p = Path(res.stdout.strip())
+        if not p.is_absolute():
+            p = (_ROOT / p).resolve()
+        return p.parent
+    except Exception:
+        return _ROOT
+
+_DEFAULT_PATH = _quarantine_data_root() / "logs" / "coaching_quarantine.jsonl"
 _RETENTION_DAYS = 30
 
 

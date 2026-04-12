@@ -13,7 +13,7 @@ from datetime import datetime, UTC
 
 from pipelines.config_loader import (
     DB_PATH, LM_MODEL, LM_MAX_TOKENS, LM_TEMPERATURE, ATHLETE, COACHING,
-    ROOT, get_lm_client, fmt_split,
+    DATA_ROOT, get_lm_client, fmt_split,
 )
 from pipelines.coaching_memory import (
     get_recent_tips, build_context_block, last_taper_flag, add_tip,
@@ -198,7 +198,7 @@ def main():
 
     garmin = None
     try:
-        with open(ROOT / "data" / "garmin_latest.json") as f:
+        with open(DATA_ROOT / "data" / "garmin_latest.json") as f:
             garmin = json.load(f)
         print("Garmin data loaded")
     except FileNotFoundError:
