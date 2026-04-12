@@ -6,8 +6,11 @@ Run with:  streamlit run pipelines/dashboard.py
 
 import html as _html
 import json
+import os
 import re as _re
+import subprocess
 import sys
+import time
 from pathlib import Path
 from datetime import date, datetime, timezone
 
@@ -181,7 +184,10 @@ def days_to_competition() -> int:
 
 
 def load_db():
-    con = duckdb.connect(DB_PATH)
+    try:
+        con = duckdb.connect(DB_PATH, read_only=True)
+    except Exception:
+        return pd.DataFrame(), pd.DataFrame()
     try:
         df = con.execute("SELECT * FROM daily_metrics ORDER BY workout_date").fetchdf()
     except Exception:
@@ -202,6 +208,16 @@ def load_coaching_output():
         with open(p) as f:
             return json.load(f)
     return {}
+
+
+def _coaching_summary_dt(coaching_output: dict) -> datetime | None:
+    summary_date = coaching_output.get("summary", {}).get("date")
+    if not summary_date:
+        return None
+    try:
+        return datetime.fromisoformat(str(summary_date))
+    except ValueError:
+        return None
 
 
 def load_weekly_plan():
@@ -229,25 +245,135 @@ def plotly_defaults() -> dict:
     )
 
 
+def _job_recent(state_key: str, ttl_seconds: int) -> bool:
+    started_at = st.session_state.get(state_key)
+    if started_at is None:
+        return False
+    return (datetime.now(timezone.utc) - started_at).total_seconds() < ttl_seconds
+
+
+def _file_mtime(path: Path) -> datetime | None:
+    if not path.exists():
+        return None
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+
+
+def _launch_background_script(script_name: str, stdout_name: str, stderr_name: str):
+    script_path = ROOT / "scripts" / script_name
+    log_dir = ROOT / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT)
+
+    with open(log_dir / stdout_name, "ab") as stdout_handle, open(log_dir / stderr_name, "ab") as stderr_handle:
+        subprocess.Popen(
+            ["/bin/bash", str(script_path)],
+            cwd=ROOT,
+            env=env,
+            stdout=stdout_handle,
+            stderr=stderr_handle,
+            start_new_session=True,
+        )
+
+
 # ── load data ─────────────────────────────────────────────────────────────────
 df, garmin_df = load_db()
 coaching_output = load_coaching_output()
 garmin          = load_garmin_cache()
 weekly_plan     = load_weekly_plan()
 latest = df.iloc[-1] if not df.empty else None
+weekly_snapshot_path = ROOT / "data" / "snapshots" / "weekly_plan.json"
+weekly_snapshot_mtime = _file_mtime(weekly_snapshot_path)
 
 # ── brand bar ─────────────────────────────────────────────────────────────────
 days_left = days_to_competition()
+training_day = (date.today() - datetime.strptime(ATHLETE["training_start"], "%Y-%m-%d").date()).days
+run_now_active = _job_recent("run_now_requested_at", 120)
+weekly_requested_at = st.session_state.get("weekly_plan_requested_at")
+weekly_completed = (
+    weekly_requested_at is not None
+    and weekly_snapshot_mtime is not None
+    and weekly_snapshot_mtime >= weekly_requested_at
+)
+if weekly_completed:
+    st.session_state["weekly_plan_requested_at"] = None
+    if st.session_state.get("weekly_plan_completed_at") != weekly_snapshot_mtime:
+        st.session_state["weekly_plan_completed_at"] = weekly_snapshot_mtime
+        st.toast("Weekly planning finished. The training plan has been refreshed.")
 
-st.markdown(f"""
-<div class="brand-bar">
-  <div>
-    <div class="brand-name">ERG<span>BootCamp</span></div>
-    <div class="brand-sub">Day {(date.today() - datetime.strptime(ATHLETE['training_start'], '%Y-%m-%d').date()).days} of 210 &nbsp;·&nbsp; {ATHLETE['goal']}</div>
-  </div>
-  <span class="model-badge">{LM_MODEL}</span>
-</div>
-""", unsafe_allow_html=True)
+weekly_active = (
+    weekly_requested_at is not None
+    and not weekly_completed
+    and _job_recent("weekly_plan_requested_at", 600)
+)
+
+if weekly_active:
+    st.caption("Weekly planning is running. This page will refresh automatically.")
+    time.sleep(3)
+    st.rerun()
+
+brand_col, run_col, weekly_col, badge_col = st.columns([6.5, 1.3, 1.8, 1.4], vertical_alignment="bottom")
+
+with brand_col:
+    st.markdown(f"""
+    <div class="brand-bar" style="border-bottom:none;margin-bottom:0;padding:10px 0 0 0">
+      <div>
+        <div class="brand-name">ERG<span>BootCamp</span></div>
+        <div class="brand-sub">Day {training_day} of 210 &nbsp;·&nbsp; {ATHLETE['goal']}</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with run_col:
+    if st.button(
+        "Running..." if run_now_active else "Run Now",
+        key="header_run_now",
+        use_container_width=True,
+        type="primary",
+        help="Kick off the full end-to-end refresh pipeline.",
+    ):
+        try:
+            _launch_background_script(
+                "run_pipeline.sh",
+                "dashboard_run_now.log",
+                "dashboard_run_now_err.log",
+            )
+            st.session_state["run_now_requested_at"] = datetime.now(timezone.utc)
+            st.toast("End-to-end refresh started. Check logs/dashboard_run_now.log in about 2 minutes.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Could not start refresh: {e}")
+
+with weekly_col:
+    if st.button(
+        "Planning..." if weekly_active else "Weekly Planning",
+        key="header_weekly_plan",
+        use_container_width=True,
+        help="Sync data, rebuild metrics, and generate the weekly plan.",
+    ):
+        try:
+            _launch_background_script(
+                "run_weekly_planning.sh",
+                "dashboard_weekly_planning.log",
+                "dashboard_weekly_planning_err.log",
+            )
+            st.session_state["weekly_plan_requested_at"] = datetime.now(timezone.utc)
+            st.toast("Weekly planning started. Check logs/dashboard_weekly_planning.log in a few minutes.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Could not start weekly planning: {e}")
+
+with badge_col:
+    st.markdown(
+        f'<div style="display:flex;justify-content:flex-end;padding-top:14px"><span class="model-badge">{LM_MODEL}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+st.markdown(
+    '<div style="border-bottom:1px solid rgba(255,255,255,0.08);margin:8px 0 20px 0"></div>',
+    unsafe_allow_html=True,
+)
 
 # ── tabs ──────────────────────────────────────────────────────────────────────
 tab_overview, tab_sessions, tab_training, tab_recovery, tab_coach = st.tabs(
@@ -528,7 +654,7 @@ with tab_training:
         fig_w.update_xaxes(tickfont=dict(size=11))
         st.plotly_chart(fig_w, use_container_width=True)
     else:
-        st.info("No weekly summary yet. The Sunday 19:30 job will generate it, or run `python pipelines/generate_weekly_plan.py` manually.")
+        st.info("No weekly summary yet. Use the top-right Weekly Planning button, or run `bash scripts/run_weekly_planning.sh` manually.")
 
     # ── Section 2: Next week plan ────────────────────────────────────────────
     st.markdown('<div class="section-hdr">Next Week Plan</div>', unsafe_allow_html=True)
@@ -749,11 +875,27 @@ with tab_coach:
 
     with col_latest:
         st.markdown('<div class="section-hdr">Latest AI coaching insight</div>', unsafe_allow_html=True)
+        latest_session_dt = None if latest is None else pd.Timestamp(latest["workout_date"]).to_pydatetime()
+        coaching_summary_dt = _coaching_summary_dt(coaching_output)
+        coaching_is_stale = (
+            latest_session_dt is not None
+            and (
+                coaching_summary_dt is None
+                or coaching_summary_dt < latest_session_dt
+            )
+        )
 
         if coaching_output:
             coaching_text = coaching_output.get("coaching", "")
             generated_at = coaching_output.get("generated_at", "")
             model_used = coaching_output.get("model", LM_MODEL)
+
+            if coaching_is_stale:
+                st.warning(
+                    "Coaching insight is out of date. "
+                    f"Latest session: {latest_session_dt.strftime('%d %b %Y %H:%M')} | "
+                    f"Coaching file covers: {coaching_summary_dt.strftime('%d %b %Y %H:%M') if coaching_summary_dt else 'unknown'}"
+                )
 
             st.markdown(f"""
             <div style="font-size:9px;color:#7a8ba8;font-family:'JetBrains Mono',monospace;margin-bottom:10px">
@@ -769,19 +911,29 @@ with tab_coach:
         brief_path = Path("coaching/briefs/daily/latest.txt")
         if brief_path.exists():
             brief_text = brief_path.read_text()
-            st.text_area("Latest brief (sent at 06:30)", brief_text, height=200)
+            st.text_area("Latest generated brief", brief_text, height=200)
 
-        col_wa1, col_wa2 = st.columns(2)
+        col_wa1, col_wa2, col_wa3 = st.columns(3)
         with col_wa1:
+            if st.button("🧠 Refresh coaching insight"):
+                with st.spinner("Generating coaching insight..."):
+                    try:
+                        from pipelines.generate_coaching import main as coaching_main
+                        coaching_main()
+                        st.success("Coaching insight regenerated.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+        with col_wa2:
             if st.button("📱 Generate & send brief now"):
-                with st.spinner("Generating brief via LMStudio..."):
+                with st.spinner("Generating brief via LM Studio..."):
                     try:
                         from pipelines.send_discord import main as send_main
                         send_main()
                         st.success("Brief sent via Discord!")
                     except Exception as e:
                         st.error(f"Error: {e}")
-        with col_wa2:
+        with col_wa3:
             if st.button("🔄 Re-generate brief (no send)"):
                 with st.spinner("Generating..."):
                     try:

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ERGBootCamp — install_launchd.sh
-# Installs the 06:30 daily Discord brief as a macOS launchd agent.
+# Installs the login-time daily refresh as a macOS launchd agent.
 # Run once after setup: bash scripts/install_launchd.sh
 
 set -e
@@ -24,7 +24,7 @@ launchctl unload "$PLIST_DST" 2>/dev/null || true
 launchctl load "$PLIST_DST"
 
 echo ""
-echo "Installed! The daily brief will fire at 06:30 every morning."
+echo "Installed! The daily refresh will run when you log in."
 echo ""
 echo "Useful commands:"
 echo "  Trigger now:    launchctl start com.ergbootcamp.daily_brief"

@@ -1,6 +1,6 @@
 # ERGBootCamp 🚣
 
-Personal indoor rowing coach — Concept2 logbook + Qwen2.5-14B via LMStudio +
+Personal indoor rowing coach — Concept2 logbook + Qwen2.5-14B Instruct via LM Studio +
 Garmin recovery signals + Discord daily brief via webhook.
 
 ## Quick start
@@ -19,21 +19,27 @@ cp config/.env.example config/.env
 #    → add C2_API_TOKEN, OPENAI_API_KEY=lm-studio,
 #       DISCORD_WEBHOOK_URL, GARMIN_EMAIL, GARMIN_PASSWORD
 
-# 4. Start LMStudio with Qwen2.5-14B-Instruct Q6_K loaded
+# 4. Start LM Studio with Qwen2.5-14B Instruct loaded
 #    (server on http://localhost:1234)
 
 # 5. Run the pipeline
 bash scripts/run_pipeline.sh
 
-# 6. Open the dashboard
+# 6. Build the weekly plan manually when needed
+bash scripts/run_weekly_planning.sh
+
+# 7. Open the dashboard
 streamlit run pipelines/dashboard.py
 ```
 
-## Install 06:30 Discord brief (macOS launchd)
+## Install Login Refresh (macOS launchd)
 
 ```bash
 bash scripts/install_launchd.sh
 ```
+
+The launchd agent runs at login. Daily and weekly refreshes can also be started
+manually from the dashboard header.
 
 Trigger manually anytime:
 
@@ -58,7 +64,7 @@ ERGBootCamp/
 │   ├── pull_concept2.py      ← Concept2 logbook API sync
 │   ├── import_garmin.py      ← Garmin Connect recovery signals
 │   ├── build_daily_metrics.py
-│   ├── generate_coaching.py  ← Qwen2.5-14B via LMStudio
+│   ├── generate_coaching.py  ← Qwen2.5-14B Instruct via LM Studio
 │   ├── generate_daily_brief.py
 │   ├── send_discord.py       ← Discord webhook embed
 │   └── dashboard.py          ← Streamlit UI
@@ -80,6 +86,7 @@ ERGBootCamp/
 ├── scripts/
 │   ├── install_launchd.sh
 │   ├── run_pipeline.sh
+│   ├── run_weekly_planning.sh
 │   └── start_dashboard.sh
 │
 └── logs/
@@ -100,14 +107,14 @@ Quick-tag buttons in the dashboard:
 - 🟡 Hard effort
 - 🟢 Race simulation
 
-### LMStudio (Qwen2.5-14B-Instruct Q6_K)
+### LM Studio (`qwen2.5-14b-instruct`)
 All AI calls use the OpenAI-compatible endpoint at `http://localhost:1234/v1`.
 No cloud API key needed for inference — set `OPENAI_API_KEY=lm-studio` as a dummy.
 
 To change the model, edit `config/settings.yaml`:
 ```yaml
 lmstudio:
-  model: "qwen2.5-14b-instruct-q6_k"   # must match LMStudio model name
+  model: "qwen2.5-14b-instruct"   # must match the LM Studio model name
   base_url: "http://localhost:1234/v1"
 ```
 
@@ -128,19 +135,22 @@ signals, and competition countdown.
 
 ### launchd schedule (macOS)
 The `install_launchd.sh` script installs a LaunchAgent that fires at
-06:30 every morning. It runs the full pipeline in order:
+login. It runs the full pipeline in order:
 1. `pull_concept2.py` — fetch overnight Concept2 sessions
 2. `import_garmin.py` — fetch Garmin overnight recovery data
 3. `build_daily_metrics.py` — rebuild DuckDB metrics view
-4. `send_discord.py` — generate brief via LMStudio + send via Discord
+4. `send_discord.py` — generate brief via LM Studio + send via Discord
 
 Logs: `logs/daily_brief.log` and `logs/daily_brief_err.log`
+
+Weekly planning is manual: use the dashboard's top-right `Weekly Planning`
+button or run `bash scripts/run_weekly_planning.sh`.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| `Connection refused localhost:1234` | Start LMStudio server first |
+| `Connection refused localhost:1234` | Start the LM Studio server first |
 | `Missing C2_API_TOKEN` | Add token to `config/.env` |
 | `Discord webhook 401/403` | Check `DISCORD_WEBHOOK_URL` in `.env` is valid |
 | `Garmin NotImplementedError` | Add `GARMIN_EMAIL` + `GARMIN_PASSWORD` to `.env` |

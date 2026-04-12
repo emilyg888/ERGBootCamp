@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / "config" / ".env")
 
 
-class OllamaSettings(BaseModel):
+class LMStudioSettings(BaseModel):
     base_url: str
     model: str
     max_tokens: int
@@ -39,7 +39,7 @@ class AthleteSettings(BaseModel):
 
 
 class Settings(BaseModel):
-    ollama: OllamaSettings
+    lmstudio: LMStudioSettings
     concept2: Concept2Settings
     coaching: CoachingSettings
     athlete: AthleteSettings
@@ -68,18 +68,18 @@ C2_API_TOKEN = os.getenv("C2_API_TOKEN")
 C2_API_URL = SETTINGS["concept2"]["api_url"]
 C2_REPLAY_DAYS = SETTINGS["concept2"]["replay_days"]
 
-# ── Ollama (OpenAI-compatible) ───────────────────────────────────────────────
-LM_BASE_URL = SETTINGS["ollama"]["base_url"]
-LM_MODEL = SETTINGS["ollama"]["model"]
-LM_MAX_TOKENS = SETTINGS["ollama"]["max_tokens"]
-LM_TEMPERATURE = SETTINGS["ollama"]["temperature"]
+# ── LM Studio (OpenAI-compatible) ────────────────────────────────────────────
+LM_BASE_URL = SETTINGS["lmstudio"]["base_url"]
+LM_MODEL = SETTINGS["lmstudio"]["model"]
+LM_MAX_TOKENS = SETTINGS["lmstudio"]["max_tokens"]
+LM_TEMPERATURE = SETTINGS["lmstudio"]["temperature"]
 
 
 def get_lm_client() -> OpenAI:
-    """Return an OpenAI client pointed at the local Ollama server."""
+    """Return an OpenAI client pointed at LM Studio."""
     return OpenAI(
         base_url=LM_BASE_URL,
-        api_key=os.getenv("OPENAI_API_KEY", "ollama"),
+        api_key=os.getenv("OPENAI_API_KEY", "lm-studio"),
     )
 
 

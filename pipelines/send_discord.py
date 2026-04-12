@@ -62,7 +62,7 @@ def load_garmin() -> dict:
 
 def build_embed(brief_text: str, coaching: dict, garmin: dict) -> dict:
     summary = coaching.get("summary", {})
-    model = coaching.get("model", "qwen2.5:14b")
+    model = coaching.get("model", "qwen2.5-14b-instruct")
     fatigue = summary.get("fatigue", "normal")
     colour = COLOURS.get(fatigue, COLOURS["normal"])
     f_emoji = FATIGUE_EMOJI.get(fatigue, "🟢")
@@ -136,7 +136,7 @@ def build_embed(brief_text: str, coaching: dict, garmin: dict) -> dict:
                 "color": colour,
                 "fields": fields,
                 "footer": {
-                    "text": f"Powered by {model} via Ollama  •  ERGBootCamp"
+                    "text": f"Powered by {model} via LM Studio  •  ERGBootCamp"
                 },
                 "timestamp": datetime.utcnow().isoformat() + "Z",
             }

@@ -1,7 +1,7 @@
 """
 ERGBootCamp — generate_coaching.py
 
-Calls Qwen2.5 via Ollama's OpenAI-compatible endpoint.
+Calls Qwen2.5-14B Instruct via LM Studio's OpenAI-compatible endpoint.
 Injects recent coaching tips as context so the model knows whether
 slower splits are expected (post-recovery-row) or a genuine concern.
 """

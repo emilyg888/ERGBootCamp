@@ -1,7 +1,7 @@
 """
 ERGBootCamp — generate_weekly_plan.py
 
-Runs every Sunday at 19:30 via launchd.
+Runs manually from the dashboard Weekly Planning action or the weekly script.
 Aggregates the past 7 days of training data, calls the LLM to produce:
   1. A weekly summary insight (plain text)
   2. A 7-day plan for the coming week (structured JSON)
