@@ -31,8 +31,8 @@ CREATE TABLE IF NOT EXISTS coaching_tips (
 """
 
 
-def _connect() -> duckdb.DuckDBPyConnection:
-    return duckdb.connect(DB_PATH)
+def _connect(*, read_only: bool = False) -> duckdb.DuckDBPyConnection:
+    return duckdb.connect(DB_PATH, read_only=read_only)
 
 
 def ensure_table():
@@ -84,19 +84,21 @@ def add_tip(
 
 def get_recent_tips(limit: int | None = None) -> list[dict]:
     """Return recent tips newest-first, capped at coaching.context_window."""
-    ensure_table()
     n = limit or COACHING["context_window"]
-    con = _connect()
-    rows = con.execute(
-        """
-        SELECT tip_id, created_at, session_date, author, tip_text, tag, session_type, expect_taper
-        FROM coaching_tips
-        ORDER BY created_at DESC
-        LIMIT ?
-        """,
-        (n,),
-    ).fetchall()
-    con.close()
+    try:
+        con = _connect(read_only=True)
+        rows = con.execute(
+            """
+            SELECT tip_id, created_at, session_date, author, tip_text, tag, session_type, expect_taper
+            FROM coaching_tips
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (n,),
+        ).fetchall()
+        con.close()
+    except Exception:
+        return []
 
     return [
         {
@@ -119,19 +121,21 @@ def last_taper_flag() -> bool:
     as a recovery row (expect_taper=True).  Used by the AI to contextualise
     slower splits.
     """
-    ensure_table()
-    con = _connect()
-    row = con.execute(
-        """
-        SELECT expect_taper
-        FROM coaching_tips
-        WHERE author = 'coach'
-        ORDER BY created_at DESC
-        LIMIT 1
-        """
-    ).fetchone()
-    con.close()
-    return bool(row[0]) if row else False
+    try:
+        con = _connect(read_only=True)
+        row = con.execute(
+            """
+            SELECT expect_taper
+            FROM coaching_tips
+            WHERE author = 'coach'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        con.close()
+        return bool(row[0]) if row else False
+    except Exception:
+        return False
 
 
 def build_context_block(tips: list[dict]) -> str:

@@ -1,7 +1,7 @@
 [project]
 name = "ergbootcamp"
 version = "1.0.0"
-description = "ERGBootCamp — Personal indoor rowing coach powered by Qwen2.5 via LMStudio"
+description = "ERGBootCamp — Personal indoor rowing coach powered by Qwen2.5 via LM Studio"
 authors = [{ name = "Athlete" }]
 readme = "README.md"
 requires-python = ">=3.10"

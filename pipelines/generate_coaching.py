@@ -1,7 +1,7 @@
 """
 ERGBootCamp — generate_coaching.py
 
-Calls Qwen2.5-14B via LMStudio (OpenAI-compatible endpoint).
+Calls Qwen2.5-14B Instruct via LM Studio's OpenAI-compatible endpoint.
 Injects recent coaching tips as context so the model knows whether
 slower splits are expected (post-recovery-row) or a genuine concern.
 """
@@ -13,7 +13,7 @@ from datetime import datetime, UTC
 
 from pipelines.config_loader import (
     DB_PATH, LM_MODEL, LM_MAX_TOKENS, LM_TEMPERATURE, ATHLETE, COACHING,
-    ROOT, get_lm_client, fmt_split,
+    DATA_ROOT, get_lm_client, fmt_split,
 )
 from pipelines.coaching_memory import (
     get_recent_tips, build_context_block, last_taper_flag, add_tip,
@@ -32,7 +32,7 @@ def get_personal_best() -> str:
     """Query the all-time personal best split from workout_sessions."""
     con = duckdb.connect(DB_PATH)
     row = con.execute("""
-    SELECT MIN(avg_split_sec), workout_date
+    SELECT avg_split_sec, workout_date
     FROM workout_sessions
     WHERE avg_split_sec IS NOT NULL AND distance_m >= 1000
     ORDER BY avg_split_sec ASC LIMIT 1
@@ -86,6 +86,16 @@ def get_summary():
     }
 
 
+def _summary_for_llm(summary: dict) -> dict:
+    """Strip raw-seconds fields that the LLM tends to quote verbatim.
+
+    Keeps only the *_formatted fields so the LLM has no numeric split
+    values lying around to accidentally regurgitate.
+    """
+    SPLIT_RAW_FIELDS = {"split_raw_sec"}
+    return {k: v for k, v in summary.items() if k not in SPLIT_RAW_FIELDS}
+
+
 def generate_coaching(summary, garmin=None):
     client = get_lm_client()
     recent_tips = get_recent_tips()
@@ -116,15 +126,19 @@ training for their first indoor rowing competition in 7 months.
 
 Athlete: height {ATHLETE['height_cm']}cm | goal: {ATHLETE['goal']} | competition: {ATHLETE['competition_date']}
 
-SPLIT CONVENTION: All splits are already in MM:SS/500m format. Lower split = faster.
-delta_sec is NEGATIVE when faster, POSITIVE when slower. Read delta_direction for clarity.
+SPLIT CONVENTION — READ CAREFULLY:
+- All split values MUST be written in MM:SS.t/500m format (e.g. "2:58.9/500m").
+- NEVER write splits as raw seconds (e.g. "178.9" or "208.7"). This is forbidden.
+- The fields ending in "_formatted" are already in MM:SS.t/500m — quote them verbatim.
+- Lower split = faster. delta_formatted is NEGATIVE when faster, POSITIVE when slower.
+- Use delta_direction for plain-English direction ("FASTER" / "SLOWER").
 {taper_note}
 --- PREVIOUS COACHING CONTEXT ---
 {context_block}
 --- END CONTEXT ---
 
 Latest session data:
-{json.dumps(summary, indent=2)}
+{json.dumps(_summary_for_llm(summary), indent=2)}
 {garmin_block}
 The athlete's personal best is {summary['personal_best_split']} from a hard threshold effort.
 Today's 10km at {summary['split_formatted']} was intentional easy volume — not a performance test.
@@ -152,7 +166,7 @@ All pace targets must be in MM:SS/500m. Be direct and specific."""
         "performance" if summary.get("trend") == "improving" else "caution"
     )
     add_tip(
-        tip_text=coaching_text[:600],
+        tip_text=coaching_text,
         author="coach",
         tag=tag,
         session_date=summary.get("date"),
@@ -184,7 +198,7 @@ def main():
 
     garmin = None
     try:
-        with open(ROOT / "data" / "garmin_latest.json") as f:
+        with open(DATA_ROOT / "data" / "garmin_latest.json") as f:
             garmin = json.load(f)
         print("Garmin data loaded")
     except FileNotFoundError:

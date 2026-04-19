@@ -14,9 +14,9 @@ import sys
 from datetime import date, datetime, UTC
 import duckdb
 
-from pipelines.config_loader import DB_PATH, GARMIN_EMAIL, GARMIN_PASSWORD, ROOT
+from pipelines.config_loader import DB_PATH, GARMIN_EMAIL, GARMIN_PASSWORD, DATA_ROOT
 
-GARMIN_CACHE = ROOT / "data" / "garmin_latest.json"
+GARMIN_CACHE = DATA_ROOT / "data" / "garmin_latest.json"
 
 # DDL also defined in semantic/schema.sql — keep in sync
 DDL_GARMIN = """
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS garmin_daily (
 """
 
 
-GARMIN_TOKEN_STORE = str(ROOT / ".garminconnect")
+GARMIN_TOKEN_STORE = str(DATA_ROOT / ".garminconnect")
 
 
 def fetch_garmin() -> dict:
@@ -133,7 +133,7 @@ def main():
 
     data = fetch_garmin()
 
-    os.makedirs(ROOT / "data", exist_ok=True)
+    os.makedirs(DATA_ROOT / "data", exist_ok=True)
     with open(GARMIN_CACHE, "w") as f:
         json.dump(data, f, indent=2)
 
